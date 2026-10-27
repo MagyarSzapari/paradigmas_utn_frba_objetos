@@ -1,0 +1,8 @@
+{
+  "name": "paradigmas-objetos-wollok-refactored",
+  "version": "2.0.0",
+  "description": "Refactored (English) version of the Neflis TP and the practice exams, runnable with Wollok-TS CLI",
+  "wollokVersion": "4.2.3",
+  "author": "valen",
+  "license": "ISC"
+}

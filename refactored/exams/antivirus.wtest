@@ -1,0 +1,214 @@
+import exams.antivirus.*
+
+describe "Point 1 - computer folders" {
+  const computer = new Computer()
+  const notes = new TextFile(name = "notes", content = "hello")
+  const editor = new RegularProgram(name = "editor")
+
+  test "a data file can be added and removed" {
+    computer.addFile(notes)
+    assert.equals([notes], computer.files())
+    computer.removeFile(notes)
+    assert.that(computer.files().isEmpty())
+  }
+
+  test "programs live in their own folder" {
+    computer.install(editor)
+    assert.equals([editor], computer.programs())
+    assert.that(computer.files().isEmpty())
+    computer.uninstall(editor)
+    assert.that(computer.programs().isEmpty())
+  }
+
+  test "the folders exposed are copies, so the computer stays encapsulated" {
+    computer.files().add(notes)
+    assert.that(computer.files().isEmpty())
+  }
+}
+
+describe "Point 2 - file sizes" {
+  test "a text file weighs (content length + name length) / 5" {
+    assert.equals(2, new TextFile(name = "notes", content = "hello").sizeInMb())
+  }
+
+  test "an image weighs its total pixels / 100" {
+    const image = new ImageFile(description = "cat", resolution = new Resolution(width = 20, height = 30))
+    assert.equals(6, image.sizeInMb())
+  }
+
+  test "a music file has a given size and a computed name" {
+    const song = new MusicFile(sizeInMb = 4, song = "Persiana Americana", artist = "Soda Stereo", year = 1986)
+    assert.equals(4, song.sizeInMb())
+    assert.equals("Persiana Americana - Soda Stereo", song.name())
+  }
+}
+
+describe "Point 3 - running programs (without antivirus)" {
+  const computer = new Computer()
+  const notes = new TextFile(name = "notes", content = "hello")
+  const image = new ImageFile(description = "cat", resolution = new Resolution(width = 20, height = 30))
+  const song = new MusicFile(sizeInMb = 4, song = "Persiana Americana", artist = "Soda Stereo", year = 1986)
+  const immuneSong = new MusicFile(sizeInMb = 3, song = "Pronta Entrega", artist = "Virus", year = 1986)
+  const virus = new Virus(name = "ILOVEYOU")
+  const ransomware = new Ransomware(name = "WannaCry", bitcoinAccount = "1A2B3C", bitcoinAmount = 2)
+
+  method initialize() {
+    computer.addFiles([notes, image, song, immuneSong])
+  }
+
+  test "a regular app creates a data text file" {
+    computer.run(new RegularProgram(name = "excel"))
+    const created = computer.files().last()
+    assert.equals("data.excel", created.name())
+    assert.equals("very important information for work", created.content())
+  }
+
+  test "a virus replaces the content of text files with its name" {
+    computer.run(virus)
+    assert.equals("ILOVEYOU", notes.content())
+  }
+
+  test "a virus rotates images and changes their description" {
+    computer.run(virus)
+    assert.equals("Brad Pitt inside a giant wooden horse", image.name())
+    assert.equals(30, image.resolution().width())
+    assert.equals(20, image.resolution().height())
+  }
+
+  test "a virus replaces the artist of a song" {
+    computer.run(virus)
+    assert.equals("Persiana Americana - ILOVEYOU", song.name())
+  }
+
+  test "a virus does nothing to Pronta Entrega" {
+    computer.run(virus)
+    assert.equals("Pronta Entrega - Virus", immuneSong.name())
+  }
+
+  test "a ransomware hides every file and leaves only its README" {
+    computer.run(ransomware)
+    assert.equals(1, computer.files().size())
+    assert.that(computer.files().first().isRansomNote())
+    assert.equals("Pay 2 bitcoins to the account 1A2B3C", computer.files().first().content())
+    assert.equals(4, ransomware.hiddenFiles().size())
+  }
+
+  test "a ransomware gives the files back when it finds a payment receipt" {
+    computer.run(ransomware)
+    computer.addFile(new TextFile(name = "Payment receipt", content = "paid to 1A2B3C"))
+    computer.run(ransomware)
+    assert.that(computer.files().contains(notes))
+    assert.that(computer.files().contains(song))
+    assert.that(ransomware.hiddenFiles().isEmpty())
+  }
+
+  test "a receipt that mentions another account is not a valid payment" {
+    computer.run(ransomware)
+    computer.addFile(new TextFile(name = "Payment receipt", content = "paid to 9Z9Z9Z"))
+    computer.run(ransomware)
+    assert.notThat(computer.files().contains(notes))
+  }
+
+  test "a ransomware fails when there is nothing to hide but its README" {
+    computer.run(ransomware)
+    assert.throwsExceptionWithMessage(
+      "There are no files to hide and no payment receipt was found",
+      { computer.run(ransomware) }
+    )
+  }
+
+  test "a ransomware fails on an empty computer" {
+    assert.throwsExceptionWithMessage(
+      "There are no files to hide and no payment receipt was found",
+      { new Computer().run(ransomware) }
+    )
+  }
+}
+
+describe "Point 4 - malware detection by license" {
+  const virus = new Virus(name = "ILOVEYOU")
+  const unknownVirus = new Virus(name = "Brain")
+  const editor = new RegularProgram(name = "editor")
+
+  method antivirusWith(license) = new Antivirus(knownMalware = #{"ILOVEYOU"}, license = license)
+
+  test "a paid antivirus detects the malware it knows" {
+    const antivirus = self.antivirusWith(paidLicense)
+    assert.that(antivirus.isMalware(virus))
+    assert.notThat(antivirus.isMalware(unknownVirus))
+    assert.notThat(antivirus.isMalware(editor))
+  }
+
+  test "an update teaches new malware to the antivirus" {
+    const antivirus = self.antivirusWith(paidLicense)
+    antivirus.receiveUpdate(#{"Brain"})
+    assert.that(antivirus.isMalware(unknownVirus))
+  }
+
+  test "a free antivirus works until its expiration date" {
+    assert.that(self.antivirusWith(new FreeLicense(expirationDate = new Date().plusDays(10))).isMalware(virus))
+  }
+
+  test "an expired free antivirus stops checking" {
+    assert.notThat(self.antivirusWith(new FreeLicense(expirationDate = new Date().minusDays(1))).isMalware(virus))
+  }
+
+  test "a trial antivirus stops checking after its fixed amount of checks" {
+    const antivirus = self.antivirusWith(new TrialLicense(remainingChecks = 2))
+    assert.that(antivirus.isMalware(virus))
+    assert.that(antivirus.isMalware(virus))
+    assert.notThat(antivirus.isMalware(virus))
+  }
+}
+
+describe "Point 5 - running programs with an antivirus" {
+  const computer = new Computer()
+  const notes = new TextFile(name = "notes", content = "hello")
+  const virus = new Virus(name = "ILOVEYOU")
+
+  method initialize() {
+    computer.addFile(notes)
+    computer.installAntivirus(new Antivirus(knownMalware = #{"ILOVEYOU"}, license = paidLicense))
+  }
+
+  test "a working antivirus blocks a known malware" {
+    assert.throwsExceptionWithMessage(
+      "Execution blocked: ILOVEYOU is a known malware",
+      { computer.run(virus) }
+    )
+    assert.equals("hello", notes.content())
+  }
+
+  test "a working antivirus lets safe programs run" {
+    computer.run(new RegularProgram(name = "excel"))
+    assert.equals(2, computer.files().size())
+  }
+
+  test "an expired antivirus lets the malware run" {
+    computer.installAntivirus(new Antivirus(knownMalware = #{"ILOVEYOU"}, license = new FreeLicense(expirationDate = new Date().minusDays(1))))
+    computer.run(virus)
+    assert.equals("ILOVEYOU", notes.content())
+  }
+}
+
+describe "Point 6 - the ultimate antivirus benchmark" {
+  const complete = new Antivirus(knownMalware = #{"ILOVEYOU", "WannaCry"}, license = paidLicense)
+  const partial = new Antivirus(knownMalware = #{"ILOVEYOU"}, license = paidLicense)
+  const paranoid = new Antivirus(knownMalware = #{"ILOVEYOU", "WannaCry", "excel"}, license = paidLicense)
+
+  method initialize() {
+    theUltimateAntivirusBenchmark.addRegularProgram(new RegularProgram(name = "excel"))
+    theUltimateAntivirusBenchmark.addMalware(new Virus(name = "ILOVEYOU"))
+    theUltimateAntivirusBenchmark.addMalware(new Ransomware(name = "WannaCry", bitcoinAccount = "1A", bitcoinAmount = 1))
+  }
+
+  test "hits count right answers on both lists" {
+    assert.equals(3, theUltimateAntivirusBenchmark.hitsOf(complete))
+    assert.equals(2, theUltimateAntivirusBenchmark.hitsOf(partial))
+    assert.equals(2, theUltimateAntivirusBenchmark.hitsOf(paranoid))
+  }
+
+  test "the best antivirus is the one with more hits" {
+    assert.equals(complete, theUltimateAntivirusBenchmark.bestOf([partial, paranoid, complete]))
+  }
+}

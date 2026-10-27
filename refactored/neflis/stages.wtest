@@ -1,0 +1,419 @@
+import neflis.content.*
+import neflis.plans.*
+import neflis.recommenders.*
+import neflis.accounts.*
+import neflis.catalog.*
+
+// Shared fixture: Margo Zavala's premium account with the profiles of
+// Margo and Cosme (stage 3 of the statement). "Today" is fixed so that
+// ages are deterministic.
+class MargoZavalaAccountFixture {
+  const property today = new Date(day = 1, month = 10, year = 2023)
+  const property account = new Account(plan = premiumPlan, clock = new FixedClock(today = today))
+  const property cosmeRecommender = new GenrePreference(genres = #{"Action", "Adventure"})
+  var margo = null
+  var cosme = null
+
+  method initialize() {
+    margo = account.createProfile("Margo", similarRating, new Date(day = 5, month = 3, year = 1990))
+    cosme = account.createProfile("Cosme", cosmeRecommender, new Date(day = 12, month = 7, year = 1985))
+  }
+
+  method margo() = margo
+  method cosme() = cosme
+
+  method basicAccount() = new Account(plan = basicPlan, clock = new FixedClock(today = today))
+  method adultBirthDate() = new Date(day = 1, month = 1, year = 2000)
+}
+
+// ---------------------------------------------------------------------
+// Stage 1 - plans, watching and average rating (original test cases)
+// ---------------------------------------------------------------------
+describe "Stage 1 - plans and watching" {
+  const neflis = new MargoZavalaAccountFixture()
+
+  test "cosme can watch Black Sails" {
+    assert.that(neflis.cosme().canWatch(blackSails))
+  }
+
+  test "cosme can watch Sean Eternos, because his profile now belongs to a premium account" {
+    assert.that(neflis.cosme().canWatch(seanEternos))
+  }
+
+  test "a profile of a basic account cannot watch Sean Eternos (stage 1 expectation)" {
+    const pepe = neflis.basicAccount().createProfile("Pepe", similarRating, neflis.adultBirthDate())
+    assert.that(pepe.canWatch(blackSails))
+    assert.that(pepe.canWatch(avengersEndgame))
+    assert.notThat(pepe.canWatch(seanEternos))
+  }
+
+  test "margo can watch Sean Eternos" {
+    assert.that(neflis.margo().canWatch(seanEternos))
+  }
+
+  test "after margo watches Black Sails it is among the things she watched" {
+    neflis.margo().watch(blackSails.pilot())
+    assert.that(neflis.margo().watched(blackSails))
+    assert.that(neflis.margo().watchedTitles().contains(blackSails))
+  }
+
+  test "cosme average rating is 0 when he has not watched anything" {
+    assert.equals(0, neflis.cosme().averageRating())
+  }
+
+  test "margo average rating after watching Black Sails and Avengers Endgame" {
+    neflis.margo().watch(blackSails.pilot())
+    neflis.margo().watch(avengersEndgame)
+    // Black Sails: 4 seasons x 8 episodes = 32. Avengers: 4 genres x 12 = 48.
+    assert.equals(32, blackSails.rating())
+    assert.equals(48, avengersEndgame.rating())
+    assert.equals(40, neflis.margo().averageRating())
+  }
+
+  test "watching several episodes of a series counts the series only once" {
+    neflis.margo().watch(blackSails.pilot())
+    neflis.margo().watch(blackSails.season(2).firstEpisode())
+    assert.equals(32, neflis.margo().averageRating())
+  }
+}
+
+describe "Stage 1 - recommendations of Margo and Cosme" {
+  const neflis = new MargoZavalaAccountFixture()
+
+  test "margo, with nothing watched, would watch Sean Eternos" {
+    assert.that(neflis.margo().wouldBeRecommended(seanEternos))
+  }
+
+  test "margo, after watching Sean Eternos, would not watch Black Sails" {
+    neflis.margo().watch(seanEternos.pilot())
+    assert.notThat(neflis.margo().wouldBeRecommended(blackSails))
+  }
+
+  test "margo, after watching Sean Eternos, would watch Black Sails with a 70% deviation" {
+    neflis.margo().watch(seanEternos.pilot())
+    similarRating.changeDeviation(0.7)
+    assert.that(neflis.margo().wouldBeRecommended(blackSails))
+  }
+
+  test "cosme would watch Black Sails" {
+    assert.that(neflis.cosme().wouldBeRecommended(blackSails))
+  }
+
+  test "cosme would not watch Sean Eternos" {
+    assert.notThat(neflis.cosme().wouldBeRecommended(seanEternos))
+  }
+
+  test "cosme would watch Sean Eternos after adding the Documentary genre" {
+    neflis.cosmeRecommender().addGenre("Documentary")
+    assert.that(neflis.cosme().wouldBeRecommended(seanEternos))
+  }
+}
+
+// ---------------------------------------------------------------------
+// Stage 2 - titles vs watchables
+// ---------------------------------------------------------------------
+describe "Stage 2 - titles and watchables" {
+  const neflis = new MargoZavalaAccountFixture()
+
+  test "a series is built with its seasons and its released episodes" {
+    assert.equals(4, blackSails.seasons().size())
+    assert.equals(8, blackSails.season(1).episodeCount())
+    assert.equals(45, blackSails.pilot().durationInMinutes())
+  }
+
+  test "watching an episode means the episode, its season and its series were watched" {
+    const episode = theWitcher.season(2).firstEpisode()
+    neflis.margo().watch(episode)
+    assert.that(neflis.margo().watched(episode))
+    assert.that(neflis.margo().watched(theWitcher.season(2)))
+    assert.that(neflis.margo().watched(theWitcher))
+    assert.notThat(neflis.margo().watched(theWitcher.season(1)))
+  }
+
+  test "a movie that was not watched is not watched" {
+    assert.notThat(neflis.margo().watched(it))
+  }
+
+  test "a series cannot be watched directly" {
+    assert.throwsExceptionWithMessage(
+      "A series or a season cannot be watched: watch one of its episodes",
+      { neflis.margo().watch(blackSails) })
+  }
+
+  test "a season cannot be watched directly" {
+    assert.throwsExceptionWithMessage(
+      "A series or a season cannot be watched: watch one of its episodes",
+      { neflis.margo().watch(blackSails.season(1)) })
+  }
+
+  test "a basic plan only covers basic titles" {
+    const pepe = neflis.basicAccount().createProfile("Pepe", similarRating, neflis.adultBirthDate())
+    assert.that(pepe.canWatch(elementos))
+    assert.notThat(pepe.canWatch(it))
+    assert.notThat(pepe.canWatch(goodOmens))
+  }
+}
+
+// ---------------------------------------------------------------------
+// Stage 3 - accounts and profiles
+// ---------------------------------------------------------------------
+describe "Stage 3 - accounts and profiles" {
+  const neflis = new MargoZavalaAccountFixture()
+  const elBartoRecommender = new GenrePreference()
+  const murphyRecommender = new FanMode(favoriteActors = #{"Jaeden Martell", "Jeremy Ray Taylor"})
+  var elBarto = null
+  var murphy = null
+
+  method initialize() {
+    elBarto = neflis.account().createProfile("El Barto", elBartoRecommender, neflis.adultBirthDate())
+    #{"Animation", "Comedy", "Fantasy", "Action", "Drama", "Horror"}.forEach { genre => elBartoRecommender.addGenre(genre) }
+    murphy = neflis.basicAccount().createProfile("Murphy Encias Sangrantes", murphyRecommender, neflis.adultBirthDate())
+  }
+
+  test "after creating El Barto the account of Margo has 3 profiles" {
+    assert.equals(3, neflis.account().profileCount())
+  }
+
+  test "margo profile is not varied (similar rating)" {
+    assert.notThat(neflis.margo().isVaried())
+  }
+
+  test "cosme profile is not varied (less than 5 genres)" {
+    assert.notThat(neflis.cosme().isVaried())
+  }
+
+  test "El Barto profile is varied (at least 5 genres)" {
+    assert.that(elBarto.isVaried())
+  }
+
+  test "Murphy profile is varied (fan mode always is)" {
+    assert.that(murphy.isVaried())
+  }
+
+  test "Murphy, in fan mode, would watch It" {
+    assert.that(murphy.wouldBeRecommended(it))
+    assert.notThat(murphy.wouldBeRecommended(blackSails))
+  }
+}
+
+// ---------------------------------------------------------------------
+// Stage 4 - recommendations from the repository
+// ---------------------------------------------------------------------
+describe "Stage 4 - repository recommendations" {
+  const neflis = new MargoZavalaAccountFixture()
+  const witcherFan = new FanMode(favoriteActors = #{"Henry Cavill"})
+
+  test "Murphy is recommended only the titles of his favorite actors" {
+    const murphy = neflis.account().createProfile("Murphy", new FanMode(favoriteActors = #{"Jaeden Martell", "Jeremy Ray Taylor"}), neflis.adultBirthDate())
+    assert.equals(#{it}, murphy.recommendationsFrom(neflisCatalog))
+  }
+
+  test "already watched titles are never recommended" {
+    const fan = neflis.account().createProfile("Fan", witcherFan, neflis.adultBirthDate())
+    fan.watch(theWitcher.pilot())
+    assert.that(fan.recommendationsFrom(neflisCatalog).isEmpty())
+  }
+
+  test "a title is ideal to share when every profile of the account would be recommended it" {
+    const account = new Account(plan = premiumPlan)
+    account.createProfile("Geralt", witcherFan, neflis.adultBirthDate())
+    account.createProfile("Yennefer", new GenrePreference(genres = #{"Fantasy"}), neflis.adultBirthDate())
+    assert.that(account.isIdealToShare(theWitcher))
+    assert.notThat(account.isIdealToShare(goodOmens))
+  }
+
+  test "the catalog exposes a copy of its titles" {
+    neflisCatalog.titles().clear()
+    assert.equals(9, neflisCatalog.titles().size())
+  }
+}
+
+// ---------------------------------------------------------------------
+// Stage 5 - viewing progress, premieres and scores
+// ---------------------------------------------------------------------
+describe "Stage 5 - viewing progress" {
+  const neflis = new MargoZavalaAccountFixture()
+
+  test "90 of the 182 minutes of Avengers Endgame were watched" {
+    neflis.margo().watchMinutes(avengersEndgame, 90)
+    assert.equals(49.45, neflis.margo().watchedPercentageOf(avengersEndgame).truncate(2))
+  }
+
+  test "two profiles can be watching the same content with different progress" {
+    neflis.margo().watch(avengersEndgame, 30)
+    neflis.cosme().watch(avengersEndgame, 80)
+    assert.equals(30, neflis.margo().watchedPercentageOf(avengersEndgame))
+    assert.equals(80, neflis.cosme().watchedPercentageOf(avengersEndgame))
+  }
+
+  test "watching a content again updates its progress" {
+    neflis.margo().watch(avengersEndgame, 30)
+    neflis.margo().watch(avengersEndgame, 60)
+    assert.equals(60, neflis.margo().watchedPercentageOf(avengersEndgame))
+  }
+
+  test "the watched percentage must be between 1 and 100" {
+    assert.throwsExceptionWithMessage("The watched percentage must be between 1 and 100",
+      { neflis.margo().watch(avengersEndgame, 0) })
+    assert.throwsExceptionWithMessage("The watched percentage must be between 1 and 100",
+      { neflis.margo().watch(avengersEndgame, 101) })
+  }
+
+  test "a basic plan profile cannot watch Millennium 2 (descriptive error)" {
+    const pepe = neflis.basicAccount().createProfile("Pepe", similarRating, neflis.adultBirthDate())
+    assert.throwsExceptionWithMessage(
+      "Millennium 2: La chica que soñaba con una cerilla y un bidón de gasolina is not available in your current plan",
+      { pepe.watch(millennium2) })
+    assert.notThat(pepe.watched(millennium2))
+  }
+
+  test "a basic plan profile cannot watch an episode of a premium series" {
+    const pepe = neflis.basicAccount().createProfile("Pepe", similarRating, neflis.adultBirthDate())
+    assert.throwsExceptionWithMessage("Good Omens is not available in your current plan",
+      { pepe.watch(goodOmens.pilot()) })
+  }
+}
+
+describe "Stage 5 - weekly premieres" {
+  const weekly = new Series(
+    name = "The Mandalorian", genres = #{"Science Fiction"}, actors = #{"Pedro Pascal"},
+    seasonCount = 2, episodesPerSeason = 2, episodeMinutes = 40,
+    releasedEpisodesPerSeason = 0, requiredPlan = basicPlan
+  )
+
+  test "a premiere is added to the last season" {
+    weekly.premiere("Chapter 1")
+    assert.equals(0, weekly.season(1).episodeCount())
+    assert.equals(1, weekly.lastSeason().episodeCount())
+    assert.equals("Chapter 1", weekly.lastSeason().firstEpisode().name())
+  }
+
+  test "a season never exceeds its maximum amount of episodes" {
+    weekly.premiere("Chapter 1")
+    weekly.premiere("Chapter 2")
+    assert.throwsExceptionWithMessage("Season 2 of The Mandalorian already has its 2 episodes",
+      { weekly.premiere("Chapter 3") })
+  }
+
+  test "the rating of a series counts its planned episodes, even unreleased ones" {
+    assert.equals(4, weekly.rating())
+  }
+}
+
+describe "Stage 5 - scores" {
+  const neflis = new MargoZavalaAccountFixture()
+
+  test "a watched content can be scored" {
+    neflis.margo().watch(avengersEndgame)
+    neflis.margo().score(avengersEndgame, 4)
+    assert.equals(4, neflis.margo().scoreOf(avengersEndgame))
+  }
+
+  test "a partially watched series can be scored" {
+    neflis.margo().watch(blackSails.pilot(), 10)
+    neflis.margo().score(blackSails, 5)
+    assert.equals(5, neflis.margo().scoreOf(blackSails))
+  }
+
+  test "a content that was not watched cannot be scored" {
+    assert.throwsExceptionWithMessage("You must watch It before scoring it",
+      { neflis.margo().score(it, 3) })
+  }
+
+  test "the score must be between 1 and 5" {
+    neflis.margo().watch(it)
+    assert.throwsExceptionWithMessage("The score must be between 1 and 5",
+      { neflis.margo().score(it, 6) })
+    assert.throwsExceptionWithMessage("The score must be between 1 and 5",
+      { neflis.margo().score(it, 0) })
+  }
+
+  test "scores belong to each profile" {
+    neflis.margo().watch(it)
+    neflis.cosme().watch(it)
+    neflis.margo().score(it, 5)
+    neflis.cosme().score(it, 1)
+    assert.equals(5, neflis.margo().scoreOf(it))
+    assert.equals(1, neflis.cosme().scoreOf(it))
+  }
+}
+
+// ---------------------------------------------------------------------
+// Stage 6 - default recommender and parental control
+// ---------------------------------------------------------------------
+describe "Stage 6 - default recommender" {
+  const neflis = new MargoZavalaAccountFixture()
+  var jorgito = null
+
+  method initialize() {
+    jorgito = neflis.account().createProfile("Jorgito", new Date(day = 20, month = 4, year = 1999))
+  }
+
+  test "a profile created without a recommender is recommended new releases when nothing is liked" {
+    assert.that(jorgito.wouldBeRecommended(theWitcher))
+    assert.notThat(jorgito.wouldBeRecommended(blackSails))
+  }
+
+  test "with something liked, the default recommender suggests related titles" {
+    avengersEndgame.relateTo(blackSails)
+    jorgito.watch(avengersEndgame)
+    jorgito.score(avengersEndgame, 5)
+    assert.that(jorgito.wouldBeRecommended(blackSails))
+    assert.notThat(jorgito.wouldBeRecommended(theWitcher))
+  }
+
+  test "relations between titles are symmetric" {
+    avengersEndgame.relateTo(blackSails)
+    assert.that(blackSails.isRelatedTo(avengersEndgame))
+  }
+
+  test "a regular score (3) does not count as liked" {
+    avengersEndgame.relateTo(blackSails)
+    jorgito.watch(avengersEndgame)
+    jorgito.score(avengersEndgame, 3)
+    assert.notThat(jorgito.hasLikedAnything())
+    assert.notThat(jorgito.wouldBeRecommended(blackSails))
+  }
+
+  test "an adult can change the recommender" {
+    jorgito.changeRecommender(new FanMode(favoriteActors = #{"Henry Cavill"}))
+    assert.that(jorgito.wouldBeRecommended(theWitcher))
+    assert.notThat(jorgito.wouldBeRecommended(goodOmens))
+  }
+}
+
+describe "Stage 6 - parental control" {
+  const neflis = new MargoZavalaAccountFixture()
+  const cartoon = new Movie(name = "Bluey: The Movie", genres = #{"Kids", "Animation"},
+                            durationInMinutes = 90, requiredPlan = basicPlan)
+  var lilMarto = null
+
+  method initialize() {
+    lilMarto = neflis.account().createProfile("Lil Marto", new Date(day = 15, month = 6, year = 2013))
+  }
+
+  test "a minor profile only gets Kids titles recommended" {
+    assert.equals(10, lilMarto.age())
+    assert.that(lilMarto.wouldBeRecommended(cartoon))
+    assert.notThat(lilMarto.wouldBeRecommended(elementos))
+  }
+
+  test "parental control applies even when a recommender is chosen" {
+    const kid = neflis.account().createProfile("Kid", new FanMode(favoriteActors = #{"Henry Cavill"}), new Date(day = 1, month = 1, year = 2015))
+    assert.notThat(kid.wouldBeRecommended(theWitcher))
+  }
+
+  test "a minor cannot change the recommender" {
+    assert.throwsExceptionWithMessage("A minor cannot change the recommender",
+      { lilMarto.changeRecommender(similarRating) })
+  }
+
+  test "the age considers whether the birthday already happened this year" {
+    const almost13 = neflis.account().createProfile("Almost", new Date(day = 2, month = 10, year = 2010))
+    const just13 = neflis.account().createProfile("Just", new Date(day = 1, month = 10, year = 2010))
+    assert.equals(12, almost13.age())
+    assert.that(almost13.isMinor())
+    assert.equals(13, just13.age())
+    assert.notThat(just13.isMinor())
+  }
+}

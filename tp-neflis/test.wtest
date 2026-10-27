@@ -1,0 +1,175 @@
+import cuenta.*
+
+describe "tests de cosmeFulanito"{
+
+	test "cosmeFulanito pude ver blackSails" {
+		assert.that(cosme.puedeMirar(blackSails))
+	}	
+	
+	//Me tira "Value was not false" porque en la primera entrega cosme no podía verlo, y ahora sí.
+	test "cosmeFulanito pude ver seanEternos" {
+		assert.notThat(cosme.puedeMirar(seanEternos))
+	}
+	
+	test "Calcular la valoracion de cosmeFulanito" {
+		assert.equals(0, cosme.promedioDeValoraciones())
+	}
+}
+
+
+describe "test de margoZavala"{
+
+	test "margoZavala pude ver seanEternos"{
+		assert.that(margo.puedeMirar(seanEternos))
+	}
+	
+	test "margoZavala pude ver  blackSails"{
+		margo.ver(blackSails)
+		assert.that(margo.contenidoVistos().contains(blackSails))
+	}
+	
+	test "Calcular la valoracion de margoZavala luego de ver avengersEndgame y blackSails"{
+		margo.ver(blackSails)
+		margo.ver(avengersEndgame)
+		assert.equals(34, margo.promedioDeValoraciones())
+	}
+}
+
+
+describe "test Recomendaciones de margo"{
+
+	test "margo podria ver seanEternos"{
+		assert.that(margo.recomendarContenido(seanEternos))
+	}
+		
+	test "margo luego de ver seanEternos, podria ver blackSails"{
+		margo.ver(seanEternos)
+		
+		assert.notThat(margo.recomendarContenido(blackSails))
+	}
+
+	test "margo luego de ver seanEternos podria ver blackSails cambiando desvio a 70 %"{
+		margo.ver(seanEternos)
+		margo.desvio(0.7)
+		assert.that(margo.recomendarContenido(blackSails))
+	}
+}	
+
+
+describe "test Recomendaciones de cosme"{
+	
+	test "cosme veria blackSails"{
+		assert.that(cosme.recomendarContenido(blackSails))
+	}
+		
+	test "cosme veria seanEternos"{
+		assert.notThat(cosme.recomendarContenido(seanEternos))
+	}
+
+	test "cosme con agregado de preferencia de genero documental podria ver seanEternos"{
+		cosme.agregarPreferencia("documental")
+		assert.that(cosme.recomendarContenido(seanEternos))
+	}    
+}
+
+describe "test cuentas y perfiles"{
+	const elBarto = margoZavala.crearPerfil("elBarto", preferenciaDeGenero, 2000)
+	const murphy = new Perfil(nombrePerfil = "murphy encias sangrantes", recomendador = modoFan)
+	
+	method initialize(){
+		elBarto.agregarPreferencia("animacion")
+		elBarto.agregarPreferencia("comedia")
+		elBarto.agregarPreferencia("accion")
+		elBarto.agregarPreferencia("drama")
+		elBarto.agregarPreferencia("fantasia")
+		elBarto.agregarPreferencia("terror")
+		
+		murphy.agregarActorFavorito("jaeden")
+		murphy.agregarActorFavorito("jeremy")
+	}
+	
+	test "se añade El Barto y la cuenta de margo queda con 3 perfiles"{
+		assert.that(margoZavala.perfiles().size() == 3)
+	}
+	
+	test "el perfil de margo NO es variado"{
+		assert.notThat(margo.esVariado())
+	}
+	
+	test "el perfil de cosme NO es variado"{
+		assert.notThat(margo.esVariado())
+	}
+	
+	test "el perfil de El Barto es variado"{
+		assert.that(elBarto.esVariado())
+	}
+	
+	test "el perfil de Murphy es variado"{
+		assert.that(murphy.esVariado())
+	}
+	
+	test "Murphy, con recomendador modo fan, puede ver It"{
+		assert.that(murphy.recomendarContenido(it))
+	}
+}
+
+describe "test porcentaje visto de un contenido"{
+
+	test "se vieron 90 minutos de los 182 que dura avengersEndgame"{
+		margo.ver(avengersEndgame)
+  		avengersEndgame.minutosVistos(90)
+		avengersEndgame.calcularPorcentajeDeVisualizacion(margo)
+		assert.that(avengersEndgame.porcentajeVisto == 49.451) // 90/182*100 = 49.451
+	}
+}
+ 
+
+
+describe "test disponibilidad de contenido según el plan"{
+	
+	method initialize(){
+		const cuentaBasica = new Cuenta(planCuenta = planBasico, perfiles = #{})
+		const pepe = cuentaBasica.crearPerfil("pepe", valoracionSimilar)
+	}
+	
+	test "con planBasico milenium2 no esta disponible para ver" {
+		assert.throwsExceptionWithMessage("El contenido no está disponible en su plan actual.", 
+	}
+}
+
+describe "test puntuar un contenido"{
+	test "si el contenido ya fue visto se puede puntuar"{
+		margo.ver(avengersEndgame)
+		margo.puntuarContenido(avengersEndgame, 4)
+		assert.that(avengersEndgame.puntuacion() == 4)
+	}
+
+	test "si el contenido no fue visto no se puede puntuar" {
+		assert.throwsExceptionWithMessage("No tenes visto este contenido", 
+			{margo.puntuarContenido(it, 3)})
+	}
+  
+	test "el puntaje que se le quiere dar a un contenido visto debe ser entre 1 y 5"{
+		margo.ver(it)
+		assert.throwsExceptionWithMessage("El puntaje debe ser entre 1 y 5", 
+			{margo.puntuarContenido(it, 6)})
+	}
+}
+
+
+describe "test crear perfil sin recomendador"{
+	const jorgito = margoZavala.crearPerfil("jorgito", 1999)
+
+	test "jorgito utiliza el recomendador por defecto"{
+		assert.that(jorgito.recomendador() == recomedadorPorDefecto)
+	}
+}
+
+
+describe "test crear perfil infantil"{
+	const lilMarto = margoZavala.crearPerfil("lil marto", 2013)
+
+	test "lilMarto es menor, utiliza el recomendador infantil"{
+		assert.that(lilMarto.recomendador() == controlParental)
+	}
+}

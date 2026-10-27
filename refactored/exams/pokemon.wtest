@@ -1,0 +1,176 @@
+import exams.pokemon.*
+
+describe "Point 1 - greatness" {
+  test "greatness is max health times the sum of the moves power" {
+    const pikachu = new Pokemon(maxHealth = 100, moves = [
+      new HealingMove(remainingUses = 1, healingPoints = 10),  // 10
+      new DamagingMove(remainingUses = 1, damage = 15),        // 30
+      new SpecialMove(remainingUses = 1, inflictedCondition = sleep),     // 50
+      new SpecialMove(remainingUses = 1, inflictedCondition = paralysis)  // 30
+    ])
+    assert.equals(100 * 120, pikachu.greatness())
+  }
+
+  test "confusion power is 40 per turn" {
+    const psyduck = new Pokemon(maxHealth = 10, moves = [
+      new SpecialMove(remainingUses = 1, inflictedCondition = new Confusion(turns = 3))
+    ])
+    assert.equals(10 * 120, psyduck.greatness())
+  }
+
+  test "a pokemon without moves has no greatness" {
+    assert.equals(0, new Pokemon(maxHealth = 100).greatness())
+  }
+}
+
+describe "Point 2a - using moves" {
+  const user = new Pokemon(maxHealth = 100, health = 50)
+  const opponent = new Pokemon(maxHealth = 100)
+
+  test "a pokemon starts with full health" {
+    assert.equals(100, opponent.health())
+  }
+
+  test "a healing move heals the user up to its max health" {
+    new HealingMove(remainingUses = 1, healingPoints = 80).useBetween(user, opponent)
+    assert.equals(100, user.health())
+  }
+
+  test "a damaging move hurts the opponent but never below zero" {
+    new DamagingMove(remainingUses = 1, damage = 150).useBetween(user, opponent)
+    assert.equals(0, opponent.health())
+    assert.notThat(opponent.isAlive())
+  }
+
+  test "a special move inflicts its condition on the opponent" {
+    new SpecialMove(remainingUses = 1, inflictedCondition = paralysis).useBetween(user, opponent)
+    assert.equals(paralysis, opponent.condition())
+  }
+
+  test "using a move consumes one use" {
+    const move = new DamagingMove(remainingUses = 2, damage = 10)
+    move.useBetween(user, opponent)
+    assert.equals(1, move.remainingUses())
+  }
+
+  test "an exhausted move cannot be used" {
+    const move = new DamagingMove(remainingUses = 0, damage = 10)
+    assert.throwsExceptionWithMessage("The move has no uses left", { move.useBetween(user, opponent) })
+  }
+}
+
+describe "Point 2b - fighting" {
+  const heads = new RiggedCoin(result = true)
+  const tails = new RiggedCoin(result = false)
+  const exhausted = new DamagingMove(remainingUses = 0, damage = 99)
+  const tackle = new DamagingMove(remainingUses = 5, damage = 10)
+  const opponent = new Pokemon(maxHealth = 100)
+
+  method fighter(coin) = new Pokemon(maxHealth = 100, moves = [exhausted, tackle], coin = coin)
+
+  test "a normal pokemon uses its first available move" {
+    self.fighter(tails).fight(opponent)
+    assert.equals(90, opponent.health())
+    assert.equals(4, tackle.remainingUses())
+  }
+
+  test "a dead pokemon cannot fight" {
+    const dead = new Pokemon(maxHealth = 100, health = 0, moves = [tackle])
+    assert.throwsExceptionWithMessage("The pokemon is not alive", { dead.fight(opponent) })
+  }
+
+  test "nobody can fight against a dead pokemon" {
+    const dead = new Pokemon(maxHealth = 100, health = 0)
+    assert.throwsExceptionWithMessage("The pokemon is not alive", { self.fighter(heads).fight(dead) })
+  }
+
+  test "a pokemon without available moves cannot fight" {
+    const tired = new Pokemon(maxHealth = 100, moves = [exhausted])
+    assert.throwsExceptionWithMessage("The pokemon has no available moves", { tired.fight(opponent) })
+  }
+
+  test "a paralyzed pokemon that fails the coin flip loses its turn" {
+    const pokemon = self.fighter(tails)
+    pokemon.sufferCondition(paralysis)
+    pokemon.fight(opponent)
+    assert.equals(100, opponent.health())
+    assert.equals(5, tackle.remainingUses())
+  }
+
+  test "a paralyzed pokemon that moves stays paralyzed" {
+    const pokemon = self.fighter(heads)
+    pokemon.sufferCondition(paralysis)
+    pokemon.fight(opponent)
+    assert.equals(90, opponent.health())
+    assert.equals(paralysis, pokemon.condition())
+  }
+
+  test "a sleeping pokemon that moves wakes up" {
+    const pokemon = self.fighter(heads)
+    pokemon.sufferCondition(sleep)
+    pokemon.fight(opponent)
+    assert.equals(90, opponent.health())
+    assert.equals(normal, pokemon.condition())
+  }
+
+  test "a sleeping pokemon that cannot move keeps sleeping" {
+    const pokemon = self.fighter(tails)
+    pokemon.sufferCondition(sleep)
+    pokemon.fight(opponent)
+    assert.equals(100, opponent.health())
+    assert.equals(sleep, pokemon.condition())
+  }
+
+  test "the fair coin always answers a boolean" {
+    assert.that([true, false].contains(fairCoin.landsHeads()))
+  }
+}
+
+describe "Point 3 - confusion" {
+  const heads = new RiggedCoin(result = true)
+  const tails = new RiggedCoin(result = false)
+  const tackle = new DamagingMove(remainingUses = 5, damage = 10)
+  const opponent = new Pokemon(maxHealth = 100)
+
+  method confused(coin, turns) {
+    const pokemon = new Pokemon(maxHealth = 100, moves = [tackle], coin = coin)
+    pokemon.sufferCondition(new Confusion(turns = turns))
+    return pokemon
+  }
+
+  test "a confused pokemon that cannot move hurts itself by 20" {
+    const pokemon = self.confused(tails, 3)
+    pokemon.fight(opponent)
+    assert.equals(80, pokemon.health())
+    assert.equals(100, opponent.health())
+  }
+
+  test "a confused pokemon that moves uses its move" {
+    const pokemon = self.confused(heads, 3)
+    pokemon.fight(opponent)
+    assert.equals(90, opponent.health())
+    assert.equals(100, pokemon.health())
+  }
+
+  test "each turn consumes one turn of confusion" {
+    const pokemon = self.confused(heads, 3)
+    pokemon.fight(opponent)
+    assert.equals(2, pokemon.condition().turns())
+  }
+
+  test "after its last turn the pokemon is normalized" {
+    const pokemon = self.confused(tails, 2)
+    pokemon.fight(opponent)
+    pokemon.fight(opponent)
+    assert.equals(normal, pokemon.condition())
+    assert.equals(60, pokemon.health())
+  }
+
+  test "the confusion of a move is never mutated by the pokemon it affects" {
+    const confusion = new Confusion(turns = 2)
+    const pokemon = new Pokemon(maxHealth = 100, moves = [tackle], coin = heads)
+    new SpecialMove(remainingUses = 1, inflictedCondition = confusion).useBetween(opponent, pokemon)
+    pokemon.fight(opponent)
+    assert.equals(2, confusion.turns())
+  }
+}

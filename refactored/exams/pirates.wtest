@@ -1,0 +1,244 @@
+import exams.pirates.*
+
+describe "Point 1 - useful pirates" {
+  const town = new CoastalTown(inhabitants = 10)
+  const tenItems = ["map", "compass", "parrot", "knife", "knife", "golden tooth",
+                    "grogXD bottle", "grogXD bottle", "hook", "eye patch"]
+
+  test "treasure hunt: useful with a map, compass or grogXD bottle and at most 5 coins" {
+    const hunt = new TreasureHunt()
+    assert.that(hunt.isUsefulFor(new Pirate(items = ["map"], coins = 5)))
+    assert.notThat(hunt.isUsefulFor(new Pirate(items = ["map"], coins = 6)))
+    assert.notThat(hunt.isUsefulFor(new Pirate(items = ["parrot"], coins = 0)))
+  }
+
+  test "become a legend: useful with at least 10 items including the required one" {
+    const legend = new BecomeALegend(requiredItem = "hook")
+    assert.that(legend.isUsefulFor(new Pirate(items = tenItems)))
+    assert.notThat(new BecomeALegend(requiredItem = "treasure map").isUsefulFor(new Pirate(items = tenItems)))
+    assert.notThat(legend.isUsefulFor(new Pirate(items = ["hook"])))
+  }
+
+  test "plunder a town: fewer coins than the limit and drunkenness of at least 50" {
+    const plunder = new Plunder(victim = town)
+    assert.that(plunder.isUsefulFor(new Pirate(coins = 3, drunkenness = 50)))
+    assert.notThat(plunder.isUsefulFor(new Pirate(coins = 3, drunkenness = 49)))
+    assert.notThat(plunder.isUsefulFor(new Pirate(coins = 10, drunkenness = 50)))
+  }
+
+  test "the coin limit is the same for every plunder and can be changed" {
+    const pirate = new Pirate(coins = 3, drunkenness = 60)
+    plunderRules.changeCoinLimit(2)
+    assert.notThat(new Plunder(victim = town).isUsefulFor(pirate))
+    plunderRules.changeCoinLimit(4)
+    assert.that(new Plunder(victim = town).isUsefulFor(pirate))
+  }
+
+  test "plunder a ship: the pirate must be wasted (drunkenness of at least 90)" {
+    const ship = new PirateShip(mission = new TreasureHunt(), capacity = 5)
+    const plunder = new Plunder(victim = ship)
+    assert.that(plunder.isUsefulFor(new Pirate(drunkenness = 90)))
+    assert.notThat(plunder.isUsefulFor(new Pirate(drunkenness = 89)))
+  }
+}
+
+describe "Point 2 - crew management" {
+  const hunt = new TreasureHunt()
+  const ship = new PirateShip(mission = hunt, capacity = 2)
+  const jack = new Pirate(items = ["compass"], coins = 1)
+  const will = new Pirate(items = ["map"], coins = 2)
+  const rich = new Pirate(items = ["map"], coins = 100)
+
+  test "a pirate can join when there is room and he is useful" {
+    assert.that(ship.canRecruit(jack))
+    assert.notThat(ship.canRecruit(rich))
+  }
+
+  test "a recruited pirate becomes part of the crew" {
+    ship.recruit(jack)
+    assert.equals(#{jack}, ship.crew())
+  }
+
+  test "a useless pirate cannot be recruited" {
+    assert.throwsExceptionWithMessage("The pirate cannot join this ship", { ship.recruit(rich) })
+  }
+
+  test "a full ship cannot recruit anybody else" {
+    ship.recruit(jack)
+    ship.recruit(will)
+    assert.notThat(ship.canRecruit(new Pirate(items = ["map"])))
+    assert.throwsExceptionWithMessage("The pirate cannot join this ship", { ship.recruit(new Pirate(items = ["map"])) })
+  }
+
+  test "changing the mission drops the crew members that are not useful anymore" {
+    ship.recruit(jack)
+    ship.recruit(will)
+    ship.changeMission(new BecomeALegend(requiredItem = "compass"))
+    assert.that(ship.crew().isEmpty())
+  }
+
+  test "changing the mission keeps the useful crew members" {
+    ship.recruit(jack)
+    ship.recruit(will)
+    ship.changeMission(new TreasureHunt())
+    assert.equals(#{jack, will}, ship.crew())
+  }
+}
+
+describe "Point 3 - anchoring" {
+  const sober = new Pirate(coins = 2, drunkenness = 10)
+  const tipsy = new Pirate(coins = 2, drunkenness = 40)
+  const broke = new Pirate(coins = 0, drunkenness = 42)
+  const town = new CoastalTown(inhabitants = 100)
+
+  test "the most drunk crew member is the one with the highest drunkenness" {
+    const crewShip = new PirateShip(mission = new TreasureHunt(), capacity = 3, crew = #{sober, tipsy, broke})
+    assert.equals(broke, crewShip.mostDrunkCrewMember())
+  }
+
+  test "anchoring: everyone who can pay drinks, spends a coin and gets 5 points drunker" {
+    const crewShip = new PirateShip(mission = new TreasureHunt(), capacity = 3, crew = #{sober, tipsy, broke})
+    crewShip.anchorAt(town)
+    assert.equals(1, sober.coins())
+    assert.equals(15, sober.drunkenness())
+    assert.equals(45, tipsy.drunkenness())
+    assert.equals(42, broke.drunkenness())
+  }
+
+  test "anchoring: the most drunk pirate gets lost in the town" {
+    const crewShip = new PirateShip(mission = new TreasureHunt(), capacity = 3, crew = #{sober, tipsy, broke})
+    crewShip.anchorAt(town)
+    assert.equals(#{sober, broke}, crewShip.crew())
+    assert.equals(101, town.inhabitants())
+  }
+
+  test "a pirate without coins cannot pay for a drink" {
+    assert.throwsExceptionWithMessage("The pirate cannot afford 1 coins", { broke.drinkGrog() })
+  }
+}
+
+describe "Point 4 - fearsome ships and crown spies" {
+  const pirateWithKey = new Pirate(items = ["map", "chest key"])
+  const ship = new PirateShip(mission = new TreasureHunt(), capacity = 2, crew = #{pirateWithKey, new Pirate(items = ["map"])})
+
+  test "a ship is fearsome when it can accomplish its mission" {
+    assert.that(ship.isFearsome())
+  }
+
+  test "a treasure hunt needs a chest key among the crew" {
+    const keyless = new PirateShip(mission = new TreasureHunt(), capacity = 2, crew = #{new Pirate(), new Pirate()})
+    assert.notThat(keyless.isFearsome())
+  }
+
+  test "every mission needs the crew to reach 90% of the capacity" {
+    const halfEmpty = new PirateShip(mission = new BecomeALegend(requiredItem = "x"), capacity = 10, crew = #{pirateWithKey})
+    assert.notThat(halfEmpty.isFearsome())
+  }
+
+  test "a ship is vulnerable to another one with at least twice its crew" {
+    const smallShip = new PirateShip(mission = new TreasureHunt(), capacity = 1, crew = #{new Pirate()})
+    const sameSize = new PirateShip(mission = new TreasureHunt(), capacity = 1, crew = #{new Pirate()})
+    assert.that(smallShip.isVulnerableTo(ship))
+    assert.notThat(smallShip.isVulnerableTo(sameSize))
+  }
+
+  test "a plunder cannot be accomplished against a victim that is not vulnerable" {
+    plunderRules.changeCoinLimit(5)
+    const bigTown = new CoastalTown(inhabitants = 1000)
+    const raiders = new PirateShip(mission = new Plunder(victim = bigTown), capacity = 2)
+    raiders.recruit(new Pirate(drunkenness = 60))
+    raiders.recruit(new Pirate(drunkenness = 70))
+    assert.notThat(raiders.isFearsome())
+  }
+
+  test "a town is vulnerable to a crew of at least 40% of its inhabitants" {
+    const crewOf2 = new PirateShip(mission = new TreasureHunt(), capacity = 2, crew = #{new Pirate(), new Pirate()})
+    assert.that(new CoastalTown(inhabitants = 5).isVulnerableTo(crewOf2))
+    assert.notThat(new CoastalTown(inhabitants = 6).isVulnerableTo(crewOf2))
+  }
+
+  test "a town is vulnerable to a completely wasted crew" {
+    const wastedCrew = new PirateShip(mission = new TreasureHunt(), capacity = 1, crew = #{new Pirate(drunkenness = 95)})
+    assert.that(new CoastalTown(inhabitants = 1000).isVulnerableTo(wastedCrew))
+  }
+
+  test "a plunder against a vulnerable town makes the ship fearsome" {
+    plunderRules.changeCoinLimit(5)
+    const town = new CoastalTown(inhabitants = 5)
+    const raiders = new PirateShip(mission = new Plunder(victim = town), capacity = 2)
+    raiders.recruit(new Pirate(drunkenness = 60))
+    raiders.recruit(new Pirate(drunkenness = 70))
+    assert.that(raiders.isFearsome())
+  }
+
+  test "a crown spy is never wasted" {
+    assert.notThat(new CrownSpy(drunkenness = 100).isWasted())
+  }
+
+  test "a crown spy needs the crown permit to dare to loot" {
+    const town = new CoastalTown(inhabitants = 10)
+    assert.notThat(new CrownSpy(drunkenness = 60).daresToLoot(town))
+    assert.that(new CrownSpy(drunkenness = 60, items = ["crown permit"]).daresToLoot(town))
+  }
+
+  test "a crown spy never dares to loot a ship (he is never wasted)" {
+    assert.notThat(new CrownSpy(drunkenness = 100, items = ["crown permit"]).daresToLoot(ship))
+  }
+}
+
+describe "Point 5 - wasted crew members" {
+  const wastedRich = new Pirate(drunkenness = 95, coins = 50, items = ["map", "knife"])
+  const wastedPoor = new Pirate(drunkenness = 90, coins = 1, items = ["map", "parrot"])
+  const sober = new Pirate(drunkenness = 0, coins = 1000, items = ["hook"])
+  const spy = new CrownSpy(drunkenness = 100, coins = 2000, items = ["crown permit"])
+  const ship = new PirateShip(mission = new TreasureHunt(), capacity = 4, crew = #{wastedRich, wastedPoor, sober, spy})
+
+  test "how many crew members are wasted" {
+    assert.equals(2, ship.wastedCrewCount())
+  }
+
+  test "how many different item types the wasted crew members carry" {
+    assert.equals(3, ship.wastedCrewItemTypes())
+  }
+
+  test "the richest wasted crew member" {
+    assert.equals(wastedRich, ship.richestWastedCrewMember())
+  }
+
+  test "the rarest item of the ship" {
+    const ship2 = new PirateShip(mission = new TreasureHunt(), capacity = 2, crew = #{wastedRich, wastedPoor})
+    assert.that(#{"knife", "parrot"}.contains(ship2.rarestItem()))
+  }
+}
+
+describe "Point 6 - invitations" {
+  const ship = new PirateShip(mission = new TreasureHunt(), capacity = 10)
+  const captain = new Pirate(items = ["map"])
+  const firstMate = new Pirate(items = ["map"])
+
+  method initialize() {
+    ship.recruit(captain)
+    ship.recruitInvitedBy(firstMate, captain)
+    ship.recruitInvitedBy(new Pirate(items = ["compass"]), captain)
+    ship.recruitInvitedBy(new Pirate(items = ["compass"]), firstMate)
+  }
+
+  test "every crew member knows who invited him" {
+    assert.that(firstMate.wasInvitedBy(captain))
+    assert.notThat(captain.wasInvitedBy(firstMate))
+  }
+
+  test "the top inviter is the one who invited more crew members" {
+    assert.equals(captain, ship.topInviter())
+  }
+
+  test "a failed invitation is not counted" {
+    assert.throwsException({ ship.recruitInvitedBy(new Pirate(items = ["map"], coins = 100), firstMate) })
+    assert.equals(1, ship.guestsOf(firstMate))
+  }
+
+  test "only crew members can invite" {
+    assert.throwsExceptionWithMessage("The inviter is not part of the crew",
+      { ship.recruitInvitedBy(new Pirate(items = ["map"]), new Pirate()) })
+  }
+}

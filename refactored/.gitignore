@@ -1,0 +1,5 @@
+# Wollok log
+log
+*.log
+.history
+node_modules
